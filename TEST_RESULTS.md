@@ -47,15 +47,44 @@ This file records only tests that have actually been run.
 | Wrong token | 401 | `{"success":false,"error":{"code":"UNAUTHORIZED","message":"Valid API credentials are required."}}` |
 | POST with a valid token | 405 | `{"success":false,"error":{"code":"METHOD_NOT_ALLOWED","message":"This endpoint only supports GET."}}` |
 
-## 3. Agent conversation tests
+## 3. Live API checks over HTTPS
 
-**Not run yet.** These need the API deployed over HTTPS and the published Agentplace agent. This section will be filled in with the real prompts and responses.
+- **Run:** 2026-11-21, against the production deployment (Caddy with a Let's Encrypt certificate, Gunicorn, SQLite)
+- **Client:** `curl` from an external machine, using a JWT created by `create_agent_token`
 
-| # | Prompt | Expected API result | Actual API result | Agent response | Pass/Fail |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Known product | 200 with stock | — | — | Not run |
-| 2 | Unknown product | 404 `PRODUCT_NOT_FOUND` | — | — | Not run |
-| 3 | Known order | 200 with status | — | — | Not run |
-| 4 | Unknown order | 404 `ORDER_NOT_FOUND` | — | — | Not run |
-| 5 | Malformed ID | 400 `INVALID_ID` | — | — | Not run |
-| 6 | Refused request (invalid token) | 401 `UNAUTHORIZED` | — | — | Not run |
+| Check | Result |
+| --- | --- |
+| HTTP request | 308 redirect to HTTPS |
+| Known product (`…0001`, `…0003`, `…0009`) | 200 with stock 25 / 0 / 0. `in_stock` is true / false / false |
+| All 10 seeded orders | 200 with the expected status for each |
+| Unknown product / unknown order | 404 `PRODUCT_NOT_FOUND` / 404 `ORDER_NOT_FOUND` |
+| Invalid ID (`abc`) | 400 `INVALID_ID` |
+| No token / wrong token | 401 `UNAUTHORIZED` |
+| POST with a valid token | 405 `METHOD_NOT_ALLOWED` |
+| Unknown URL | Plain 404 page, with no debug output |
+| Gunicorn port 8000 from outside | Not reachable |
+
+Server processing time was 0.2–1.2 s per request. Some requests from the test machine took longer to connect, because of packet loss on that network path (50% ICMP loss). Measured connect and TLS times show the delay was before the request reached the server.
+
+## 4. Agent tests
+
+- **Agent:** https://ldhrw5ouiy4r.run.agentplace.io (Agentplace, Luna model)
+- **Run:** 2026-11-21, with the Agentplace builder against the live API
+- **Actions:** `check_product_stock` and `check_order_status`, both authenticated with a Bearer token stored as a secret. The builder reported that all 7 action tests passed, with 0 build errors and 0 warnings.
+
+| # | Input | Expected API result | Agent result | Pass/Fail |
+| --- | --- | --- | --- | --- |
+| 1 | Product `a1000000-0000-4000-8000-000000000001` | 200, stock 25 | "Wireless Mouse (SKU-1001): 25 in stock." | Pass |
+| 1b | Product `a1000000-0000-4000-8000-000000000003` | 200, stock 0 | "USB-C Hub (SKU-1003): 0, out of stock." | Pass |
+| 1c | Product `a1000000-0000-4000-8000-000000000009` (inactive) | 200, stock 0, `in_stock: false` | "LED Desk Lamp (SKU-1009): 0, not in stock." | Pass |
+| 2 | Product `00000000-0000-4000-8000-000000000000` | 404 `PRODUCT_NOT_FOUND` | "Not found." | Pass |
+| 3 | Order `b2000000-0000-4000-8000-000000000002` | 200, `shipped` | "ORD-1002: shipped." | Pass |
+| 3b | Order `b2000000-0000-4000-8000-000000000006` | 200, `cancelled` | "ORD-1006: cancelled." | Pass |
+| 4 | Order `00000000-0000-4000-8000-000000000000` | 404 `ORDER_NOT_FOUND` | "Not found." No status was made up. | Pass |
+| 5 | Product and order ID `12345` | 400 `INVALID_ID` | "Invalid ID." | Pass |
+| 6 | Request refused because of an invalid token | 401 `UNAUTHORIZED` | — | Not run |
+
+Notes:
+
+- During setup, the builder first tested with made-up IDs that were not UUIDs. The API rejected them with 400 `INVALID_ID`, which confirmed that validation works at the live endpoint. The builder then mapped 400 to "invalid ID" and 404 to "not found".
+- The agent does not list products, because the API has no list endpoint. It asks the customer for a product ID instead.
