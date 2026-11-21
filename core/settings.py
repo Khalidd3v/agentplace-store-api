@@ -6,6 +6,7 @@ For local development they can be put in a `.env` file (see `.env.example`).
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,7 +28,6 @@ INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "rest_framework",
-    "rest_framework.authtoken",
     "store",
 ]
 
@@ -70,6 +70,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "EXCEPTION_HANDLER": "store.exceptions.custom_exception_handler",
+}
+
+# Simple JWT. Tokens are signed with SECRET_KEY and sent as `Authorization: Bearer <token>`.
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=30),
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 

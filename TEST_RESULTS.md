@@ -5,9 +5,9 @@ This file records only tests that have actually been run.
 ## 1. Automated API tests
 
 - **Command:** `python manage.py test`
-- **Run:** 2026-11-21 07:33 UTC, on a local machine
-- **Versions:** Python 3.13.7, Django 5.2.19, Django REST Framework 3.18.3
-- **Result:** `Ran 16 tests in 0.034s` `OK`
+- **Run:** 2026-11-21 07:36 UTC, on a local machine
+- **Versions:** Python 3.13.7, Django 5.2.19, Django REST Framework 3.18.3, Simple JWT 5.5.1
+- **Result:** `Ran 18 tests in 0.043s` `OK`
 
 | Case | Test | Expected | Result |
 | --- | --- | --- | --- |
@@ -21,17 +21,19 @@ This file records only tests that have actually been run.
 | Wrong token | `test_wrong_token_is_refused` | 401 `UNAUTHORIZED` | Pass |
 | Malformed `Authorization` header | `test_malformed_header_is_refused` | 401 `UNAUTHORIZED` | Pass |
 | Token in query string | `test_token_in_query_string_is_refused` | 401 `UNAUTHORIZED` | Pass |
+| Expired token | `test_expired_token_is_refused` | 401 `UNAUTHORIZED` | Pass |
 | Token of an inactive user | `test_inactive_user_is_refused` | 401 `UNAUTHORIZED` | Pass |
 | POST to a read-only endpoint | `test_post_is_not_allowed` | 405 `METHOD_NOT_ALLOWED` | Pass |
 | Product with zero stock | `test_product_with_zero_stock_is_not_in_stock` | `in_stock: false` | Pass |
 | Inactive product | `test_inactive_product_is_not_reported_as_available` | `stock_quantity: 0`, `in_stock: false` | Pass |
 | No customer details in order response | `test_order_response_has_no_customer_details` | Customer name absent | Pass |
 | Seed command run twice | `test_seed_is_idempotent` | Exactly 10 products and 10 orders | Pass |
+| Agent token command | `test_create_agent_token_returns_working_30_day_token` | 30-day JWT that authenticates | Pass |
 
 ## 2. Manual smoke test against Gunicorn
 
 - **Run:** 2026-11-21, on a local machine
-- **Setup:** `migrate`, `seed_store`, and `drf_create_token agentplace`, then Gunicorn on `127.0.0.1` with 2 workers. Requests were sent with `curl`.
+- **Setup:** `migrate`, `seed_store`, and `create_agent_token`, then Gunicorn on `127.0.0.1` with 2 workers. Requests were sent with `curl`.
 
 | Request | HTTP | Response |
 | --- | ---: | --- |

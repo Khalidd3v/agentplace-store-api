@@ -1,11 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
-from django.test import TestCase
-from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import AccessToken
 
 from .models import Order, OrderItem, Product
 
@@ -15,7 +14,8 @@ UNKNOWN_ID = "00000000-0000-4000-8000-000000000000"
 class StoreAPITestCase(APITestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.token = Token.objects.create(user=User.objects.create(username="agentplace"))
+        cls.user = User.objects.create(username="agentplace")
+        cls.token = str(AccessToken.for_user(cls.user))
 
         cls.product = Product.objects.create(sku="SKU-1", name="Wireless Mouse", stock_quantity=25)
         cls.empty_product = Product.objects.create(sku="SKU-2", name="USB-C Hub", stock_quantity=0)
@@ -31,7 +31,7 @@ class StoreAPITestCase(APITestCase):
         OrderItem.objects.create(order=cls.order, product=cls.product, quantity=1, unit_price="24.99")
 
     def setUp(self):
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token.key}")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}")
 
     def assertError(self, response, status_code, code):
         self.assertEqual(response.status_code, status_code)
@@ -120,18 +120,24 @@ class AuthenticationTests(StoreAPITestCase):
         self.assertError(self.client.get(self.url), 401, "UNAUTHORIZED")
 
     def test_malformed_header_is_refused(self):
-        for header in [self.token.key, f"Token {self.token.key}", "Bearer", f"Bearer {self.token.key} extra"]:
+        for header in [self.token, f"Token {self.token}", "Bearer", f"Bearer {self.token} extra"]:
             with self.subTest(header=header):
                 self.client.credentials(HTTP_AUTHORIZATION=header)
                 self.assertError(self.client.get(self.url), 401, "UNAUTHORIZED")
 
     def test_token_in_query_string_is_refused(self):
-        response = self.client.get(f"{self.url}?token={self.token.key}")
+        response = self.client.get(f"{self.url}?token={self.token}")
         self.assertError(response, 401, "UNAUTHORIZED")
 
+    def test_expired_token_is_refused(self):
+        token = AccessToken.for_user(self.user)
+        token.set_exp(lifetime=-timedelta(seconds=1))
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertError(self.client.get(self.url), 401, "UNAUTHORIZED")
+
     def test_inactive_user_is_refused(self):
-        User.objects.filter(pk=self.token.user_id).update(is_active=False)
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token.key}")
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}")
         self.assertError(self.client.get(self.url), 401, "UNAUTHORIZED")
 
 
@@ -142,10 +148,20 @@ class MethodTests(StoreAPITestCase):
                 self.assertError(self.client.post(url), 405, "METHOD_NOT_ALLOWED")
 
 
-class SeedCommandTests(TestCase):
+class ManagementCommandTests(APITestCase):
     def test_seed_is_idempotent(self):
         call_command("seed_store", stdout=StringIO())
         call_command("seed_store", stdout=StringIO())
         self.assertEqual(Product.objects.count(), 10)
         self.assertEqual(Order.objects.count(), 10)
-        self.assertTrue(User.objects.filter(username="agentplace").exists())
+
+    def test_create_agent_token_returns_working_30_day_token(self):
+        out = StringIO()
+        call_command("create_agent_token", stdout=out, stderr=StringIO())
+        token = AccessToken(out.getvalue().strip())
+        self.assertEqual(token["exp"] - token["iat"], 30 * 24 * 60 * 60)
+
+        call_command("seed_store", stdout=StringIO())
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = self.client.get("/api/products/a1000000-0000-4000-8000-000000000001/stock/")
+        self.assertEqual(response.status_code, 200)

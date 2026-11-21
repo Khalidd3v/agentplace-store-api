@@ -1,20 +1,14 @@
 import uuid
 
 from rest_framework import status
-from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .exceptions import error_response
 from .models import Order, Product
 from .serializers import OrderStatusSerializer, ProductStockSerializer
-
-
-class BearerTokenAuthentication(TokenAuthentication):
-    """DRF token authentication using the standard `Authorization: Bearer <token>` header."""
-
-    keyword = "Bearer"
 
 
 def is_valid_uuid(value):
@@ -30,7 +24,7 @@ def invalid_id_response():
 
 
 class ProductStockView(APIView):
-    authentication_classes = [BearerTokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, product_id):
@@ -45,7 +39,7 @@ class ProductStockView(APIView):
 
 
 class OrderStatusView(APIView):
-    authentication_classes = [BearerTokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, order_id):

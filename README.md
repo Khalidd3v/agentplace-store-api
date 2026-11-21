@@ -2,7 +2,7 @@
 
 A small, read-only Django REST API for checking product stock and order status. An [Agentplace](https://agentplace.io) store agent running on the free Luna model calls it. It was built for the [Agentplace Backend Engineer assessment](https://agentplace.io/careers/backend-engineer).
 
-**Stack:** Python 3.13, Django 5.2, Django REST Framework, SQLite, Gunicorn, Caddy.
+**Stack:** Python 3.13, Django 5.2, Django REST Framework, Simple JWT, SQLite, Gunicorn, Caddy.
 
 ## Project structure
 
@@ -12,11 +12,13 @@ agentplace-store-api/
 ├── store/                  Django app
 │   ├── models.py           Product, Order, OrderItem
 │   ├── serializers.py      Response serializers
-│   ├── views.py            APIView classes with token authentication
+│   ├── views.py            APIView classes with JWT authentication
 │   ├── exceptions.py       JSON error format
 │   ├── urls.py
 │   ├── tests.py
-│   └── management/commands/seed_store.py
+│   └── management/commands/
+│       ├── seed_store.py           sample data
+│       └── create_agent_token.py   JWT for the agent
 ├── manage.py
 ├── requirements.txt
 ├── .env.example
@@ -36,28 +38,30 @@ pip install -r requirements.txt
 cp .env.example .env              # then set DJANGO_SECRET_KEY
 
 python manage.py migrate
-python manage.py seed_store       # 10 products, 10 orders, and the "agentplace" API user
-python manage.py drf_create_token agentplace   # prints the API token
+python manage.py seed_store           # 10 products and 10 orders
+python manage.py create_agent_token   # prints a 30-day JWT for the agent
 python manage.py runserver
 ```
 
 | Variable | Description |
 | --- | --- |
-| `DJANGO_SECRET_KEY` | Required. |
+| `DJANGO_SECRET_KEY` | Required. Also signs the JWTs. |
 | `DJANGO_DEBUG` | `True` for local development. Defaults to `False`. |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hostnames. |
 | `SQLITE_PATH` | Optional database path. Defaults to `./db.sqlite3`. |
 
 ## Authentication
 
-The API uses DRF's `TokenAuthentication` with the `Bearer` keyword. Each view sets the `IsAuthenticated` permission. Tokens live in the database and belong to the `agentplace` user.
+The API uses [Simple JWT](https://django-rest-framework-simplejwt.readthedocs.io/). Each view sets `JWTAuthentication` and the `IsAuthenticated` permission. Access tokens last 30 days (`SIMPLE_JWT` in `core/settings.py`).
 
 ```http
 Authorization: Bearer <token>
 ```
 
-- Create or show the token: `python manage.py drf_create_token agentplace`
-- Rotate the token: `python manage.py drf_create_token -r agentplace`
+`python manage.py create_agent_token` prints a token for the `agentplace` user. It creates the user, with no password, if needed. There is no login endpoint, because the agent uses one fixed token stored as a secret.
+
+- **Renew:** run the command again before the 30 days are up and update the secret in Agentplace.
+- **Revoke every token:** deactivate the `agentplace` user, or change `DJANGO_SECRET_KEY`.
 
 ## API
 
@@ -112,7 +116,7 @@ The response does not include customer details.
 
 | Situation | HTTP | Code |
 | --- | --- | --- |
-| Missing or invalid token | 401 | `UNAUTHORIZED` |
+| Missing, invalid, or expired token | 401 | `UNAUTHORIZED` |
 | ID is not a valid UUID | 400 | `INVALID_ID` |
 | Product does not exist | 404 | `PRODUCT_NOT_FOUND` |
 | Order does not exist | 404 | `ORDER_NOT_FOUND` |
@@ -176,12 +180,12 @@ The API runs on an Ubuntu VPS. Gunicorn listens on `127.0.0.1:8000`, and Caddy s
    }
    ```
 
-5. Start the service, seed the data, and create the token:
+5. Start the service, seed the data, and create the agent's token:
 
    ```bash
    sudo systemctl enable --now store-api
    sudo systemctl reload caddy
-   sudo -u store-api bash -c 'set -a; . /etc/store-api/env; cd /srv/store-api && .venv/bin/python manage.py seed_store && .venv/bin/python manage.py drf_create_token agentplace'
+   sudo -u store-api bash -c 'set -a; . /etc/store-api/env; cd /srv/store-api && .venv/bin/python manage.py seed_store && .venv/bin/python manage.py create_agent_token'
    ```
 
 6. Allow only SSH, HTTP, and HTTPS through the firewall: `sudo ufw allow OpenSSH && sudo ufw allow 80,443/tcp && sudo ufw enable`.
@@ -197,7 +201,7 @@ Build a store-support agent on the free Luna model with two API actions:
 | `check_product_stock` | `product_id` | `GET https://<host>/api/products/{product_id}/stock/` |
 | `check_order_status` | `order_id` | `GET https://<host>/api/orders/{order_id}/status/` |
 
-Store the token as a secret in the action's connection settings as `Authorization: Bearer <token>`. Never put it in the agent's instructions.
+Store the token from `create_agent_token` as a secret in the action's connection settings, sent as `Authorization: Bearer <token>`. Never put it in the agent's instructions. Renew it every 30 days.
 
 Suggested agent instructions:
 
