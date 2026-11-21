@@ -1,0 +1,22 @@
+# Agentplace store API. Joins the shared zmapos-backend_default network so the
+# shared Caddy can reach it as agentplace-store-api:8000. No host ports are
+# published. Settings and secrets go in ./env (gitignored, chmod 600).
+name: agentplace-store-api
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: agentplace-store-api
+    container_name: agentplace-store-api
+    env_file: ./env
+    volumes:
+      - data:/data
+    restart: unless-stopped
+    networks: [shared]
+volumes:
+  data:
+networks:
+  shared:
+    name: zmapos-backend_default
+    external: true

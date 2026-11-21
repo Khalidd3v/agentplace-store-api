@@ -2,7 +2,7 @@
 
 A small, read-only Django REST API for checking product stock and order status. An [Agentplace](https://agentplace.io) store agent running on the free Luna model calls it. It was built for the [Agentplace Backend Engineer assessment](https://agentplace.io/careers/backend-engineer).
 
-**Stack:** Python 3.13, Django 5.2, Django REST Framework, Simple JWT, SQLite, Gunicorn, Caddy.
+**Stack:** Python 3.13, Django 5.2, Django REST Framework, Simple JWT, SQLite, Gunicorn, Docker, Caddy.
 
 ## Project structure
 
@@ -19,6 +19,7 @@ agentplace-store-api/
 │   └── management/commands/
 │       ├── seed_store.py           sample data
 │       └── create_agent_token.py   JWT for the agent
+├── deploy/docker/          Dockerfile and compose file for production
 ├── manage.py
 ├── requirements.txt
 ├── .env.example
@@ -141,56 +142,53 @@ Results from real runs are in [TEST_RESULTS.md](TEST_RESULTS.md).
 
 ## Deployment
 
-The API runs on an Ubuntu VPS. Gunicorn listens on `127.0.0.1:8000`, and Caddy serves HTTPS and proxies to it.
+The API runs on an Ubuntu VPS in Docker. Gunicorn listens on port 8000 inside the container, and a Caddy container that already serves other sites on the same host handles HTTPS and proxies to it. The files are in [deploy/docker](deploy/docker).
 
-1. Install the app in `/srv/store-api` with a virtualenv in `.venv`. Create a `store-api` system user and a persistent data directory at `/var/lib/store-api`, owned by that user.
-2. Put the settings in `/etc/store-api/env` and make the file readable only by root and `store-api` (`chmod 640`):
+| File | Purpose |
+| --- | --- |
+| `Dockerfile` | Python 3.13 image. Runs as a non-root user, applies migrations at start, then starts Gunicorn with 2 workers. |
+| `compose.yaml` | One `api` service. It joins the Caddy stack's Docker network (`zmapos-backend_default`; change it to match yours) and publishes no host ports. SQLite lives in the `data` volume. |
+| `Dockerfile.dockerignore` | Keeps `.git`, local databases and `deploy/docker/env` out of the image. |
+
+1. Create `deploy/docker/env`. It is gitignored, so set `chmod 600` on it:
 
    ```ini
    DJANGO_SECRET_KEY=<long random value>
    DJANGO_DEBUG=False
-   DJANGO_ALLOWED_HOSTS=api.example.com
-   SQLITE_PATH=/var/lib/store-api/db.sqlite3
+   DJANGO_ALLOWED_HOSTS=api.example.com,localhost,127.0.0.1,agentplace-store-api
+   SQLITE_PATH=/data/db.sqlite3
    ```
 
-3. Create `/etc/systemd/system/store-api.service`:
+2. Build and start the container, then seed the data and create the agent's token:
 
-   ```ini
-   [Unit]
-   Description=Agentplace store API
-   After=network.target
-
-   [Service]
-   User=store-api
-   WorkingDirectory=/srv/store-api
-   EnvironmentFile=/etc/store-api/env
-   ExecStartPre=/srv/store-api/.venv/bin/python manage.py migrate --noinput
-   ExecStart=/srv/store-api/.venv/bin/gunicorn core.wsgi:application --bind 127.0.0.1:8000 --workers 2
-   Restart=on-failure
-
-   [Install]
-   WantedBy=multi-user.target
+   ```bash
+   cd deploy/docker
+   docker compose up -d --build
+   docker exec agentplace-store-api python manage.py seed_store
+   docker exec agentplace-store-api python manage.py create_agent_token
    ```
 
-4. Create `/etc/caddy/Caddyfile`. Caddy gets the TLS certificate and redirects HTTP to HTTPS on its own:
+3. Add a site block to the shared Caddyfile. Caddy gets the TLS certificate and redirects HTTP to HTTPS on its own:
 
    ```caddyfile
    api.example.com {
-       reverse_proxy 127.0.0.1:8000
+       encode gzip
+       reverse_proxy agentplace-store-api:8000
    }
    ```
 
-5. Start the service, seed the data, and create the agent's token:
+   Check the file with `caddy validate` before you apply it. If the Caddy admin API is off, you have to restart the Caddy container to load the change, and every site it serves is down for a few seconds. If the Caddyfile is bind-mounted as a single file, edit it in place (for example, by appending to it). Editors that replace the file break the mount.
+
+4. To update, pull the new code and rebuild. Only this container is replaced, and the database volume is kept:
 
    ```bash
-   sudo systemctl enable --now store-api
-   sudo systemctl reload caddy
-   sudo -u store-api bash -c 'set -a; . /etc/store-api/env; cd /srv/store-api && .venv/bin/python manage.py seed_store && .venv/bin/python manage.py create_agent_token'
+   git pull
+   cd deploy/docker && docker compose up -d --build
    ```
 
-6. Allow only SSH, HTTP, and HTTPS through the firewall: `sudo ufw allow OpenSSH && sudo ufw allow 80,443/tcp && sudo ufw enable`.
+To run the tests against the built image: `docker run --rm -e DJANGO_SECRET_KEY=test agentplace-store-api python manage.py test`.
 
-Keep `db.sqlite3` outside the repository and back it up. Run a single app instance, because SQLite is not built for many concurrent writers.
+Back up the `agentplace-store-api_data` volume. Run a single app instance, because SQLite is not built for many concurrent writers.
 
 ## Agentplace setup
 
