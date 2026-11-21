@@ -10,3 +10,4 @@ __pycache__/
 
 # Private notes, not for the public repo
 AGENTPLACE_PROJECT_SPEC.md
+DEPLOY.md
