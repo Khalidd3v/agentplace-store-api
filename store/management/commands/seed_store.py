@@ -1,4 +1,4 @@
-"""Load the 10 sample products and 10 sample orders.
+"""Load the 10 sample products, 10 sample orders, and the Agentplace API user.
 
 IDs are fixed so the records can be referenced in tests and agent conversations.
 Running the command again updates the same records instead of duplicating them.
@@ -7,10 +7,13 @@ Running the command again updates the same records instead of duplicating them.
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from store.models import Order, OrderItem, Product
+
+API_USERNAME = "agentplace"
 
 # (id, sku, name, description, stock_quantity, is_active)
 PRODUCTS = [
@@ -42,7 +45,7 @@ ORDERS = [
 
 
 class Command(BaseCommand):
-    help = "Create or update the 10 sample products and 10 sample orders."
+    help = "Create or update the sample products and orders, and the Agentplace API user."
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -76,4 +79,11 @@ class Command(BaseCommand):
                 for sku, qty, price in items
             )
 
+        # The API user only authenticates with a token, never a password.
+        user, created = User.objects.get_or_create(username=API_USERNAME)
+        if created:
+            user.set_unusable_password()
+            user.save()
+
         self.stdout.write(self.style.SUCCESS(f"Seeded {len(PRODUCTS)} products and {len(ORDERS)} orders."))
+        self.stdout.write(f"Create the API token with: python manage.py drf_create_token {API_USERNAME}")
