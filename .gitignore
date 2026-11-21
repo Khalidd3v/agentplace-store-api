@@ -7,3 +7,6 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# Private notes, not for the public repo
+AGENTPLACE_PROJECT_SPEC.md
