@@ -1,0 +1,27 @@
+# /etc/systemd/system/store-api.service
+[Unit]
+Description=Agentplace store API (Gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=store-api
+Group=store-api
+WorkingDirectory=/srv/store-api
+EnvironmentFile=/etc/store-api/env
+ExecStartPre=/srv/store-api/.venv/bin/python manage.py migrate --noinput
+ExecStart=/srv/store-api/.venv/bin/gunicorn config.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 2 \
+    --access-logfile -
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/store-api
+
+[Install]
+WantedBy=multi-user.target

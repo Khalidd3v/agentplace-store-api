@@ -1,0 +1,9 @@
+# /etc/caddy/Caddyfile
+# Replace api.example.com with the real hostname. Its DNS record must point to
+# this server and ports 80/443 must be open; Caddy then obtains and renews the
+# TLS certificate and redirects HTTP to HTTPS automatically.
+
+api.example.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:8000
+}
